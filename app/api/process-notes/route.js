@@ -1,6 +1,6 @@
 import { processNotes } from "../../../services/aiService";
 import { generatePDF } from "../../../services/pdfService";
-
+import { pdfToImages } from "../../../services/pdfToImage";
 
 export const runtime = "nodejs";
 
@@ -38,9 +38,10 @@ export async function POST(request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const base64Image = buffer.toString("base64");
-
-    const formattedNotes = await processNotes(base64Image, file.type);
+    const formattedNotes =
+      file.type === "application/pdf"
+        ? await processPdfNotes(buffer)
+        : await processNotes(buffer.toString("base64"), file.type);
     const pdfBuffer = await generatePDF(formattedNotes);
 
     return new Response(pdfBuffer, {
@@ -57,4 +58,31 @@ export async function POST(request) {
       { status: 500 },
     );
   }
+}
+
+async function processPdfNotes(fileBuffer) {
+  const pageImages = await pdfToImages(fileBuffer);
+
+  if (pageImages.length === 0) {
+    throw new Error("The PDF does not contain any readable pages.");
+  }
+
+  const pageNotes = [];
+
+  for (const pageImage of pageImages) {
+    pageNotes.push(
+      await processNotes(pageImage.toString("base64"), "image/png"),
+    );
+  }
+
+  return {
+    title: pageNotes[0].title,
+    contents: pageNotes.flatMap((notes) => notes.contents || []),
+    sections: pageNotes
+      .flatMap((notes) => notes.sections || [])
+      .map((section, index) => ({
+        ...section,
+        number: index + 1,
+      })),
+  };
 }

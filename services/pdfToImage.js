@@ -1,14 +1,23 @@
-import { pdf } from "pdf-to-img";
+ import { createCanvas } from "canvas";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export async function pdfToImages(fileBuffer) {
   try {
-    const document = await pdf(fileBuffer);
+    const document = await getDocument({
+      data: new Uint8Array(fileBuffer),
+      disableWorker: true,
+    }).promise;
 
     const images = [];
 
-    for await (const page of document) {
-      // `page` is a PNG buffer
-      images.push(page);
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = createCanvas(viewport.width, viewport.height);
+      const context = canvas.getContext("2d");
+
+      await page.render({ canvasContext: context, viewport }).promise;
+      images.push(canvas.toBuffer("image/png"));
     }
 
     return images;
